@@ -49,33 +49,41 @@ type consumerGroupHandler struct {
 func (*consumerGroupHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
 func (*consumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
 func (h *consumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	for msg := range claim.Messages() {
-		var m broker.Message
-		p := &publication{m: &m, t: msg.Topic, km: msg, cg: h.cg, sess: sess}
-		eh := h.kopts.ErrorHandler
+	for {
+		select {
+		case msg := <-claim.Messages():
+			var m broker.Message
+			p := &publication{m: &m, t: msg.Topic, km: msg, cg: h.cg, sess: sess}
+			eh := h.kopts.ErrorHandler
 
-		if err := h.kopts.Codec.Unmarshal(msg.Value, &m); err != nil {
-			p.err = err
-			p.m.Body = msg.Value
-			if eh != nil {
-				eh(p)
-			} else {
-				log.Errorf("[kafka]: failed to unmarshal: %v", err)
+			if err := h.kopts.Codec.Unmarshal(msg.Value, &m); err != nil {
+				p.err = err
+				p.m.Body = msg.Value
+				if eh != nil {
+					eh(p)
+				} else {
+					log.Errorf("[kafka]: failed to unmarshal: %v", err)
+				}
+				continue
 			}
-			continue
-		}
 
-		err := h.handler(p)
-		if err == nil && h.subopts.AutoAck {
-			sess.MarkMessage(msg, "")
-		} else if err != nil {
-			p.err = err
-			if eh != nil {
-				eh(p)
-			} else {
-				log.Errorf("[kafka]: subscriber error: %v", err)
+			err := h.handler(p)
+			if err == nil && h.subopts.AutoAck {
+				sess.MarkMessage(msg, "")
+			} else if err != nil {
+				p.err = err
+				if eh != nil {
+					eh(p)
+				} else {
+					log.Errorf("[kafka]: subscriber error: %v", err)
+				}
 			}
+
+		// Should return when `session.Context()` is done.
+		// If not, will raise `ErrRebalanceInProgress` or `read tcp <ip>:<port>: i/o timeout` when kafka rebalance. see:
+		// https://github.com/Shopify/sarama/issues/1192
+		case <-sess.Context().Done():
+			return nil
 		}
 	}
-	return nil
 }
