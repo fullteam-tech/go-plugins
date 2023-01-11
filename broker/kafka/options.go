@@ -83,6 +83,7 @@ func (h *consumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, cl
 		// If not, will raise `ErrRebalanceInProgress` or `read tcp <ip>:<port>: i/o timeout` when kafka rebalance. see:
 		// https://github.com/Shopify/sarama/issues/1192
 		case <-sess.Context().Done():
+			log.Errorf("ErrRebalanceInProgress")
 			return nil
 		}
 	}
