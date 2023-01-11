@@ -51,7 +51,10 @@ func (*consumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error { retu
 func (h *consumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for {
 		select {
-		case msg := <-claim.Messages():
+		case msg, ok := <-claim.Messages():
+			if !ok {
+				return nil
+			}
 			var m broker.Message
 			p := &publication{m: &m, t: msg.Topic, km: msg, cg: h.cg, sess: sess}
 			eh := h.kopts.ErrorHandler
@@ -83,6 +86,7 @@ func (h *consumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, cl
 		// If not, will raise `ErrRebalanceInProgress` or `read tcp <ip>:<port>: i/o timeout` when kafka rebalance. see:
 		// https://github.com/Shopify/sarama/issues/1192
 		case <-sess.Context().Done():
+			log.Errorf("[kafka]: ErrRebalanceInProgress")
 			return nil
 		}
 	}
